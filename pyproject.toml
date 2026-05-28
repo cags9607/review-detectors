@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "combined-review-detectors"
+version = "0.1.0"
+description = "Inference and queue worker for combined scam-review and AI-generated-review detectors."
+requires-python = ">=3.10"
+dependencies = [
+    "accelerate>=0.30",
+    "bitsandbytes>=0.43",
+    "huggingface_hub>=0.23",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "peft>=0.11",
+    "requests>=2.31",
+    "safetensors>=0.4",
+    "sentencepiece>=0.2",
+    "torch>=2.1",
+    "tqdm>=4.66",
+    "transformers>=4.41",
+]
+
+[tool.setuptools]
+packages = ["review_classifier", "aigt"]
+py-modules = ["core", "processor", "processor_config", "processor_utils", "ai_classifier"]
