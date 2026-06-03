@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -72,45 +72,45 @@ single_word_scam_mapping = {
 }
 
 
-emoji_like_clean_mapping = {
+emoji_like_no_scam_mapping = {
     # negative emoji / symbols: negative sentiment, but not scam evidence
-    "😡": "clean",
-    "🤬": "clean",
-    "😠": "clean",
-    "😤": "clean",
-    "👎": "clean",
-    "💩": "clean",
-    "🤮": "clean",
-    "😒": "clean",
-    "😑": "clean",
-    "🙄": "clean",
-    "😞": "clean",
-    "😔": "clean",
-    "😭": "clean",
-    "😢": "clean",
-    "😱": "clean",
-    "🚫": "clean",
-    "❌": "clean",
-    "⛔": "clean",
-    "🖕": "clean",
+    "😡": "no_scam",
+    "🤬": "no_scam",
+    "😠": "no_scam",
+    "😤": "no_scam",
+    "👎": "no_scam",
+    "💩": "no_scam",
+    "🤮": "no_scam",
+    "😒": "no_scam",
+    "😑": "no_scam",
+    "🙄": "no_scam",
+    "😞": "no_scam",
+    "😔": "no_scam",
+    "😭": "no_scam",
+    "😢": "no_scam",
+    "😱": "no_scam",
+    "🚫": "no_scam",
+    "❌": "no_scam",
+    "⛔": "no_scam",
+    "🖕": "no_scam",
 
     # punctuation-only / symbolic frustration: negative, but not scam evidence
-    "!": "clean",
-    "!!": "clean",
-    "!!!": "clean",
-    "!!!!": "clean",
-    "!!!!!": "clean",
-    "?": "clean",
-    "??": "clean",
-    "???": "clean",
-    "????": "clean",
-    "?????": "clean",
-    "...": "clean",
-    "..": "clean",
-    ".": "clean",
-    "-": "clean",
-    "--": "clean",
-    "---": "clean",
+    "!": "no_scam",
+    "!!": "no_scam",
+    "!!!": "no_scam",
+    "!!!!": "no_scam",
+    "!!!!!": "no_scam",
+    "?": "no_scam",
+    "??": "no_scam",
+    "???": "no_scam",
+    "????": "no_scam",
+    "?????": "no_scam",
+    "...": "no_scam",
+    "..": "no_scam",
+    ".": "no_scam",
+    "-": "no_scam",
+    "--": "no_scam",
+    "---": "no_scam",
 }
 
 
@@ -134,6 +134,14 @@ def normalize_short_review_text(text: Any) -> str:
 
 
 def strip_outer_punctuation(text: str) -> str:
+    """
+    Keep internal hyphens for terms such as loan-shark, while removing
+    surrounding punctuation from a single-token review.
+
+    Examples:
+        scam!!! -> scam
+        "fraud" -> fraud
+    """
     return re.sub(r"^[^\w#@+-]+|[^\w#@+-]+$", "", text, flags = re.UNICODE)
 
 
@@ -147,6 +155,10 @@ def count_whitespace_words(text: Any) -> int:
 
 
 def is_emoji_or_symbol_only(text: Any) -> bool:
+    """
+    Return True when text contains at least one visible character but no
+    letters or digits.
+    """
     normalized = normalize_short_review_text(text)
 
     if normalized == "":
@@ -179,21 +191,25 @@ def is_repeated_punctuation_or_symbol(text: Any) -> bool:
 def map_ultrashort_review(
     text: Any,
     scam_mapping: Dict[str, str] = single_word_scam_mapping,
-    emoji_mapping: Dict[str, str] = emoji_like_clean_mapping,
+    emoji_mapping: Dict[str, str] = emoji_like_no_scam_mapping,
 ) -> Dict[str, Any]:
     """
-    Conservative pre-labeler for reviews with <= 1 whitespace-delimited word.
+    Conservative scam pre-labeler for reviews with <= 1 whitespace-delimited word.
 
-    Explicit scam/fraud terms become scam subcategories. Emoji/punctuation-only
-    texts become clean because they are sentiment, not scam evidence. Unknown
-    one-word text is left as clean but not marked as heuristic_applied, matching
-    the original helper contract.
+    Behavior:
+        - Explicit scam/fraud terms become the appropriate scam subcategory.
+        - Emoji/punctuation-only texts become no_scam because they express
+          sentiment but do not provide scam evidence.
+        - Empty text becomes no_scam.
+        - Unknown one-word text is returned as no_scam but not marked as an
+          applied heuristic. Whether it overrides model inference depends on
+          force_unknown_single_word_clean in apply_ultrashort_overrides().
     """
     normalized = normalize_short_review_text(text)
     n_words = count_whitespace_words(normalized)
 
     empty_result = {
-        "heuristic_label": "clean",
+        "heuristic_label": "no_scam",
         "heuristic_confidence": None,
         "heuristic_reason": None,
         "heuristic_evidence": None,
@@ -205,7 +221,7 @@ def map_ultrashort_review(
 
     if normalized == "":
         return {
-            "heuristic_label": "clean",
+            "heuristic_label": "no_scam",
             "heuristic_confidence": 0.70,
             "heuristic_reason": "Empty or whitespace-only review has no scam evidence.",
             "heuristic_evidence": "",
@@ -234,7 +250,7 @@ def map_ultrashort_review(
 
     if is_repeated_punctuation_or_symbol(normalized):
         return {
-            "heuristic_label": "clean",
+            "heuristic_label": "no_scam",
             "heuristic_confidence": 0.70,
             "heuristic_reason": "Symbol-only review does not provide scam evidence.",
             "heuristic_evidence": normalized,
@@ -244,7 +260,13 @@ def map_ultrashort_review(
     return empty_result
 
 
-def add_ultrashort_review_labels(df: pd.DataFrame, text_col: str = "text") -> pd.DataFrame:
+def add_ultrashort_review_labels(
+    df: pd.DataFrame,
+    text_col: str = "text",
+) -> pd.DataFrame:
+    """
+    Add ultra-short scam heuristic fields without overwriting model predictions.
+    """
     if text_col not in df.columns:
         raise ValueError(f"df must contain column: {text_col}")
 
@@ -270,6 +292,12 @@ def replace_single_word(
     heuristic_col: str = "heuristic_label",
     only_non_null_heuristic: bool = True,
 ) -> pd.DataFrame:
+    """
+    Replace pred_col with heuristic_col for rows where n_words_col == 1.
+
+    This helper remains available for backward compatibility. For the deployed
+    detector flow, apply_ultrashort_overrides() is the preferred entry point.
+    """
     required_cols = [pred_col, n_words_col, heuristic_col]
     missing_cols = [col for col in required_cols if col not in df.columns]
 
@@ -296,12 +324,19 @@ def apply_ultrashort_overrides(
     force_unknown_single_word_clean: bool = True,
 ) -> pd.DataFrame:
     """
-    Apply the one-word review heuristic after model inference.
+    Apply the one-word scam heuristic after model inference.
 
-    Default behavior intentionally mirrors the supplied replace_single_word helper:
-    every one-word review is assigned the heuristic label. Unknown one-word tokens
-    therefore become clean because the original helper returns clean as the empty
-    default label.
+    Despite the legacy argument name `force_unknown_single_word_clean`,
+    the negative scam label now emitted by this module is `no_scam`,
+    matching the model label mapping.
+
+    When force_unknown_single_word_clean is True:
+        - All one-word reviews use the heuristic label.
+        - Unknown one-word tokens become no_scam.
+
+    When force_unknown_single_word_clean is False:
+        - Only explicitly recognized heuristic cases override the model:
+          scam terms, mapped emoji/punctuation, empty text and repeated symbols.
     """
     out = add_ultrashort_review_labels(df, text_col = text_col)
 
